@@ -1,3 +1,4 @@
+import { createMenu, addRoadLine, addConnectionLine } from './menu.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
@@ -167,12 +168,15 @@ for (let i = 0; i < gridSize; i++) {
     createRoad(roadWidth, blockSize + roadWidth, { x: centerX + blockSize / 2, y: roadY, z: centerZ });
   }
 }
+createMenu();
+
 function createRoadLine(start, end) {
   const material = new THREE.LineBasicMaterial({ color: 0xffa500, linewidth: 3 }); // Orange color
   const points = [new THREE.Vector3(start.x, start.y, start.z), new THREE.Vector3(end.x, end.y, end.z)];
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
   const line = new THREE.Line(geometry, material);
   scene.add(line);
+  addRoadLine(line);
 }
 // Adjust road line position slightly above the roads
 const lineY = roadY + 0.02; 
@@ -220,6 +224,7 @@ function createConnectionLine(modelPos, blockCenter, rotation) {
   const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
   const line = new THREE.Line(geometry, material);
   scene.add(line);
+  addConnectionLine(line);
 }
 
 // In your grid loop, right after you call loadModel for each model,
