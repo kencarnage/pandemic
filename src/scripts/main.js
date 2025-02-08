@@ -123,11 +123,13 @@ function checkCameraInsideModels() {
     }
   });
 }
-
+const movingBlobs = []; // Store moving blobs and their paths
+// animate remember here
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
   checkCameraInsideModels(); // Check and hide models dynamically
+  updateMovingBlobs();// Move blobs each frame
   renderer.render(scene, camera);
 }
 
@@ -178,23 +180,36 @@ function createRoadLine(start, end) {
   scene.add(line);
   addRoadLine(line);
 
-  // Generate a blob at the middle of the road line
-  createBlob((start.x + end.x) / 2, start.y + 0.2, (start.z + end.z) / 2);
+  // Create a moving blob for this road
+  createMovingBlob(start, end);
+}
+
+function createMovingBlob(start, end) {
+  const geometry = new THREE.SphereGeometry(0.2, 10, 10);
+  const material = new THREE.MeshBasicMaterial({ color: 0x0000ff }); // Blue moving blob
+  const blob = new THREE.Mesh(geometry, material);
+  blob.position.copy(start); // Start at the beginning of the road
+  scene.add(blob);
+
+  movingBlobs.push({ blob, start, end, progress: 0 });
+}
+
+// Function to update moving blobs each frame
+function updateMovingBlobs() {
+  movingBlobs.forEach((item) => {
+    item.progress += 0.01; // Speed of movement (adjust as needed)
+
+    if (item.progress > 1) {
+      item.progress = 0; // Reset to loop movement
+    }
+
+    // Interpolate position along the road line
+    item.blob.position.lerpVectors(item.start, item.end, item.progress);
+  });
 }
 
 // Adjust road line position slightly above the roads
 const lineY = roadY + 0.2;
-
-// Function to create a circular blob at a given position
-function createBlob(x, y, z) {
-  const geometry = new THREE.SphereGeometry(0.2, 10, 10); // Small blob
-  const material = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // Red blob
-  const blob = new THREE.Mesh(geometry, material);
-
-  blob.position.set(x, y, z); // Position blob slightly above the road
-  scene.add(blob);
-}
-
 
 for (let i = 0; i < gridSize; i++) {
   for (let j = 0; j < gridSize; j++) {
