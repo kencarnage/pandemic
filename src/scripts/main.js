@@ -177,9 +177,24 @@ function createRoadLine(start, end) {
   const line = new THREE.Line(geometry, material);
   scene.add(line);
   addRoadLine(line);
+
+  // Generate a blob at the middle of the road line
+  createBlob((start.x + end.x) / 2, start.y + 0.2, (start.z + end.z) / 2);
 }
+
 // Adjust road line position slightly above the roads
-const lineY = roadY + 0.02; 
+const lineY = roadY + 0.2;
+
+// Function to create a circular blob at a given position
+function createBlob(x, y, z) {
+  const geometry = new THREE.SphereGeometry(0.2, 10, 10); // Small blob
+  const material = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // Red blob
+  const blob = new THREE.Mesh(geometry, material);
+
+  blob.position.set(x, y, z); // Position blob slightly above the road
+  scene.add(blob);
+}
+
 
 for (let i = 0; i < gridSize; i++) {
   for (let j = 0; j < gridSize; j++) {
@@ -202,7 +217,7 @@ for (let i = 0; i < gridSize; i++) {
   }
 }
 // Define the road connection line elevation (just above the road lines)
-const connectionLineY = roadY + 0.02;
+const connectionLineY = roadY + 0.2;
 
 // Function to create a connection line from a model’s front side to its corresponding road line.
 // We pass in the model’s known position (from the block loop), the block center (an object with x and z), and the model’s rotation.
@@ -252,5 +267,3 @@ for (let i = 0; i < gridSize; i++) {
     });
   }
 }
-
-
