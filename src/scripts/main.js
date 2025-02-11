@@ -1,7 +1,8 @@
-import { createMenu, addRoadLine, addConnectionLine } from './menu.js';
+//import { createMenu, addRoadLine, addConnectionLine } from './menu.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import gsap from "gsap";
 
 // Import assets through Webpack
 import flatModel from '../assets/Flat.gltf';
@@ -123,13 +124,13 @@ function checkCameraInsideModels() {
     }
   });
 }
-const movingBlobs = []; // Store moving blobs and their paths
+
 // animate remember here
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
   checkCameraInsideModels(); // Check and hide models dynamically
-  updateMovingBlobs();// Move blobs each frame
+  
   renderer.render(scene, camera);
 }
 
@@ -170,7 +171,10 @@ for (let i = 0; i < gridSize; i++) {
     createRoad(roadWidth, blockSize + roadWidth, { x: centerX + blockSize / 2, y: roadY, z: centerZ });
   }
 }
-createMenu();
+// Store created road and connection lines in arrays
+let roadLines = [];
+let connectionLines = [];
+let movingBlobs = []; // Store moving blobs
 
 function createRoadLine(start, end) {
   const material = new THREE.LineBasicMaterial({ color: 0xffa500, linewidth: 3 }); // Orange color
@@ -178,35 +182,131 @@ function createRoadLine(start, end) {
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
   const line = new THREE.Line(geometry, material);
   scene.add(line);
-  addRoadLine(line);
-
-  // Create a moving blob for this road
-  createMovingBlob(start, end);
+  
+  addRoadLine({ start, end, line }); // Store the road line with references
 }
 
-function createMovingBlob(start, end) {
+function addRoadLine(road) {
+  roadLines.push(road);
+}
+
+function addConnectionLine(connection) {
+  connectionLines.push(connection);
+}
+
+// Function to create a connection line from a model’s front side to its corresponding road line.
+function createConnectionLine(modelPos, blockCenter, rotation) {
+  const material = new THREE.LineBasicMaterial({ color: 0x0000ff, linewidth: 2 }); // Blue color for connection lines
+  const start = new THREE.Vector3(modelPos.x, connectionLineY, modelPos.z);
+
+  let end;
+  if (rotation.y === 0) {
+    end = new THREE.Vector3(modelPos.x, connectionLineY, blockCenter.z + blockSize / 2);
+  } else if (Math.abs(rotation.y - Math.PI) < 0.001) {
+    end = new THREE.Vector3(modelPos.x, connectionLineY, blockCenter.z - blockSize / 2);
+  } else {
+    return; // Fallback: no connection
+  }
+
+  const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
+  const line = new THREE.Line(geometry, material);
+  scene.add(line);
+  
+  addConnectionLine({ start, end, line }); // Store connection line object
+}
+
+// Function to create a moving blob at a random connection line
+function createMovingBlob() {
+  if (connectionLines.length === 0) {
+    console.warn("No connection lines available for blobs.");
+    return;
+  }
+
+  const startConnection = getRandomConnectionLine(); // Get a random starting model
   const geometry = new THREE.SphereGeometry(0.2, 10, 10);
   const material = new THREE.MeshBasicMaterial({ color: 0x0000ff }); // Blue moving blob
   const blob = new THREE.Mesh(geometry, material);
-  blob.position.copy(start); // Start at the beginning of the road
+  
+  blob.position.copy(startConnection.start); // Start at the connection point
   scene.add(blob);
-
-  movingBlobs.push({ blob, start, end, progress: 0 });
+  
+  moveBlob(blob, startConnection);
+  movingBlobs.push(blob);
 }
 
-// Function to update moving blobs each frame
-function updateMovingBlobs() {
-  movingBlobs.forEach((item) => {
-    item.progress += 0.01; // Speed of movement (adjust as needed)
-
-    if (item.progress > 1) {
-      item.progress = 0; // Reset to loop movement
+// Function to move a blob through connection and road lines
+function moveBlob(blob, startConnection) {
+  function travel() {
+    if (roadLines.length === 0 || connectionLines.length === 0) {
+      console.warn("No roads or connections available.");
+      return;
     }
 
-    // Interpolate position along the road line
-    item.blob.position.lerpVectors(item.start, item.end, item.progress);
+    const roadLine = getRandomRoadLine(); // Pick a random road
+    const endConnection = getRandomConnectionLine(); // Pick a random target connection
+
+    // Move from startConnection → road start
+    animateBlob(blob, roadLine.start, () => {
+      // Move along the road
+      animateBlob(blob, roadLine.end, () => {
+        // Move to the new connection
+        animateBlob(blob, endConnection.start, () => {
+          setTimeout(() => {
+            // Move back along the same road
+            animateBlob(blob, roadLine.end, () => {
+              animateBlob(blob, roadLine.start, () => {
+                // Move back to original connection
+                animateBlob(blob, startConnection.start, () => {
+                  setTimeout(travel, 2000); // Repeat after delay
+                });
+              });
+            });
+          }, 2000);
+        });
+      });
+    });
+  }
+
+  travel();
+}
+
+// Get a random connection line
+function getRandomConnectionLine() {
+  if (connectionLines.length === 0) return null;
+  return connectionLines[Math.floor(Math.random() * connectionLines.length)];
+}
+
+// Get a random road line
+function getRandomRoadLine() {
+  if (roadLines.length === 0) return null;
+  return roadLines[Math.floor(Math.random() * roadLines.length)];
+}
+
+// Animate the blob to the target point
+function animateBlob(blob, target, callback) {
+  if (!target) {
+    console.warn("Invalid target for animation.");
+    return;
+  }
+
+  gsap.to(blob.position, {
+    duration: 2,
+    x: target.x,
+    y: target.y,
+    z: target.z,
+    onComplete: callback,
   });
 }
+
+// Function to start the simulation
+function startSimulation() {
+  for (let i = 0; i < 5; i++) { // Create 5 blobs
+    createMovingBlob();
+  }
+}
+
+// Call this after setting up roads and connections
+
 
 // Adjust road line position slightly above the roads
 const lineY = roadY + 0.2;
@@ -236,26 +336,6 @@ const connectionLineY = roadY + 0.2;
 
 // Function to create a connection line from a model’s front side to its corresponding road line.
 // We pass in the model’s known position (from the block loop), the block center (an object with x and z), and the model’s rotation.
-function createConnectionLine(modelPos, blockCenter, rotation) {
-  const material = new THREE.LineBasicMaterial({ color: 0xffa500, linewidth: 2 }); // blue line, for example
-  // The start point is based on the model’s position; we use connectionLineY so the line is slightly above the road.
-  const start = new THREE.Vector3(modelPos.x, connectionLineY, modelPos.z);
-  let end;
-  if (rotation.y === 0) {
-    // Facing +Z: connect to the top road line of the block.
-    end = new THREE.Vector3(modelPos.x, connectionLineY, blockCenter.z + blockSize / 2);
-  } else if (Math.abs(rotation.y - Math.PI) < 0.001) {
-    // Facing -Z: connect to the bottom road line of the block.
-    end = new THREE.Vector3(modelPos.x, connectionLineY, blockCenter.z - blockSize / 2);
-  } else {
-    // Fallback (if needed): no connection
-    return;
-  }
-  const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
-  const line = new THREE.Line(geometry, material);
-  scene.add(line);
-  addConnectionLine(line);
-}
 
 // In your grid loop, right after you call loadModel for each model,
 // also call createConnectionLine using the known position, block center, and rotation.
@@ -282,3 +362,5 @@ for (let i = 0; i < gridSize; i++) {
     });
   }
 }
+const gol=startSimulation();
+console.log(gol)
