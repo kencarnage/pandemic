@@ -1,39 +1,57 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pandemic Simulation</title>
-  <style>
-    /* Basic styling for the canvas */
-    body {
-      margin: 0;
-      overflow: hidden;
-      font-family: Arial, sans-serif;
-    }
-    canvas {
-      display: block;
-    }
-    .info {
-      position: absolute;
-      top: 10px;
-      left: 800px;
-      background: rgba(0, 0, 0, 0.7);
-      color: white;
-      padding: 10px;
-      border-radius: 5px;
-    }
-  </style>
-</head>
-<body>
-  <!-- Display information -->
-  <div class="info">
-    <h2>Pandemic Simulation</h2>
-    <p>Red: Infected | Blue: Healthy</p>
-  </div>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Research</title>
+    <style>
+      body {
+        margin: 0;
+      }
 
-  <!-- The Three.js scene will render here -->
-  <script type="module" src=".src/menu.js"></script>
-  <script type="module" src="./main.js"></script>
-</body>
+      canvas {
+        display: block;
+      }
+
+      .counter-wrapper {
+        position: absolute;
+        z-index: 999;
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 24px;
+        padding: 1em;
+        background-color: rgba(0, 0, 0, 0.6); /* Black with 60% transparency */
+        border-radius: 100px;
+        color: #ffffff; /* Default text color is white for contrast */
+        max-width: 90%;
+        min-width: 25px;
+      }
+
+      .text {
+        display: block;
+        margin-bottom: 0.5em;
+        font-weight: 700;
+        color: #ffffff; /* Ensure white text for readability */
+        font:bold
+      }
+
+      .case-counter,
+      .day-counter {
+        color: #ef233c; /* Red color for the numbers */
+        font-weight: normal;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="counter-wrapper">
+      <span class="text">
+        Total confirmed cases: <span class="case-counter">0</span>
+      </span>
+      <span class="text">
+        Total days elapsed: <span class="day-counter">0</span>
+      </span>
+    </div>
+
+    <!-- Local Module -->
+    <script type="module" src="./src/menu.js"></script>
+    <script type="module" src="./main.js"></script>
+  </body>
 </html>

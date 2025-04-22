@@ -3,423 +3,454 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import gsap from "gsap";
-
+import * as dat from "dat.gui";
 // Import assets through Webpack
 import flatModel from '../assets/Flat.gltf';
 import flat2Model from '../assets/Flat2.gltf';
 import houseModel from '../assets/House.gltf';
 import houseTexturePath from '../assets/HouseTexture1.png';
-
+// Controls setup
+const control = {
+  play: true,
+  tSpeed: 0.001,
+  peopleCount: 100,
+  infectedBlobs: 10,
+  contactedWithBlobs: 10,
+  infectionChance: 5,
+  showPaths: false,
+  reload: function () {
+    this.play = false;
+    resetBlobs();
+    pathsArray = [];
+    generatePopulation();
+    this.play = true;
+  },
+  stopAnimation: function () {
+    this.play = !this.play;
+    if (this.play) animate();
+  },
+};
+// Global variables
+var renderer, camera, scene, controls;
+var plane, cube;
+var cityWidth = 1300;
+var cityLength = 1300;
+var t = 0;
+var pathsArray = [];
+var isBlobGoingBack = false;
+var daysPassed = 0;
+var probability = function (n) {
+  return !!n && Math.random() * 100 <= n;
+};
+var elapsedDays = 1;
 // Scene setup
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setClearColor(0xffffff, 1); // White background
-document.body.appendChild(renderer.domElement);
-
-// Improved Lighting
-const directionalLight = new THREE.DirectionalLight(0xffffff, 2); // Stronger main light
-directionalLight.position.set(10, 15, 10);
-scene.add(directionalLight);
-
-const backLight = new THREE.DirectionalLight(0xffffff, 1);
-backLight.position.set(-10, 10, -10);
-scene.add(backLight);
-
-const ambientLight = new THREE.AmbientLight(0xaaaaaa, 1.5); // Softer ambient light
-scene.add(ambientLight);
-
-const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
-hemiLight.position.set(0, 30, 0);
-scene.add(hemiLight);
-
-// OrbitControls setup
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.2;
-controls.maxPolarAngle = Math.PI / 2.2;
-controls.maxDistance = 60; // Maximum zoom (prevents zooming too far)
-controls.minDistance = 8; // Minimum zoom (prevents getting too close)
-// Loaders
-const gltfLoader = new GLTFLoader();
-const textureLoader = new THREE.TextureLoader();
-const houseTexture1 = textureLoader.load(houseTexturePath);
-
-// Function to load models with proper scaling
-const modelsArray = []; // Store loaded models
-
-function loadModel(path, texture = null, position, scale, rotation) {
-  gltfLoader.load(
-    path,
-    (gltf) => {
-      const model = gltf.scene;
-      model.position.set(position.x, position.y, position.z);
-      model.scale.set(scale.x, scale.y, scale.z);
-      model.rotation.set(rotation.x, rotation.y, rotation.z);
-
-      model.traverse((child) => {
-        if (child.isMesh) {
-          if (texture) {
-            child.material.map = texture;
-            child.material.needsUpdate = true;
-          }
-          child.material.color.set(0xffffff);
-          child.material.metalness = 0.4;
-          child.material.roughness = 0.4;
-        }
-      });
-
-      scene.add(model);
-      
-      // Compute bounding box
-      const box = new THREE.Box3().setFromObject(model);
-      modelsArray.push({ model, box });
-    },
-    undefined,
-    (error) => console.error(`Error loading model ${path}:`, error)
-  );
-}
-
-
-// Create 5x5 grid of blocks, each containing 2x2 models
-const blockSize = 10; // Size of each block (spacing between models)
-const gridSize = 5; // 5x5 grid
-
-// Middle of the entire grid
-const totalSize = (gridSize - 1) * blockSize;
-const middleX = totalSize / 2;
-const middleZ = totalSize / 2;
-
-for (let i = 0; i < gridSize; i++) {
-  for (let j = 0; j < gridSize; j++) {
-    const centerX = i * blockSize - middleX; // Shift grid to center
-    const centerZ = j * blockSize - middleZ; // Shift grid to center
-
-    const models = [
-      { model: flatModel, position: { x: centerX - 1.5, y: 0, z: centerZ + 1.5 }, scale: { x: 1.2, y: 1.2, z: 1.2 }, rotation: { x: 0, y: 0, z: 0 } },
-      { model: flat2Model, position: { x: centerX + 1.5, y: 0, z: centerZ + 1.5 }, scale: { x: 1.2, y: 1.2, z: 1.2 }, rotation: { x: 0, y: 0, z: 0 } },
-      { model: houseModel, position: { x: centerX - 1.5, y: 0, z: centerZ - 1.5 }, scale: { x: 2.5, y: 2.5, z: 2.5 }, rotation: { x: 0, y: Math.PI, z: 0 } },
-      { model: flatModel, position: { x: centerX + 1.5, y: 0, z: centerZ - 1.5 }, scale: { x: 1.2, y: 1.2, z: 1.2 }, rotation: { x: 0, y: Math.PI, z: 0 } },
-    ];
-
-    models.forEach(modelData => {
-      loadModel(modelData.model, houseTexture1, modelData.position, modelData.scale, modelData.rotation);
-    });
-  }
-}
-
-// Adjust camera position & focus
-camera.position.set(middleX, 20, middleZ + 30); // Higher & slightly behind
-camera.lookAt(middleX, 0, middleZ);
-
-
-function checkCameraInsideModels() {
-  modelsArray.forEach(({ model, box }) => {
-    box.setFromObject(model); // Update bounding box in case of changes
-    if (box.containsPoint(camera.position)) {
-      model.visible = false; // Hide model if camera is inside
-    } else {
-      model.visible = true; // Show model otherwise
-    }
-  });
-}
-
-// animate remember here
-function animate() {
-  requestAnimationFrame(animate);
-  controls.update();
-  checkCameraInsideModels(); // Check and hide models dynamically
-  
-  renderer.render(scene, camera);
-}
-
+init();
+generatePopulation();
+initControls();
 animate();
+//init();
+//var renderer
+function init(){
+  document.querySelector(".case-counter").innerHTML =
+    control.infectedBlobs + "/" + control.peopleCount;
+  document.querySelector(".day-counter").innerHTML = elapsedDays;
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
+  camera.position.set(0, 300, 500);
+  camera.lookAt(0, 0, 0);
+  // SECTION: Renderer
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0xffffff, 1); // White background
+  document.body.appendChild(renderer.domElement);
+  
+  // Improved Lighting
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 2); // Stronger main light
+  directionalLight.position.set(10, 15, 10);
+  scene.add(directionalLight);
+  
+  const backLight = new THREE.DirectionalLight(0xffffff, 1);
+  backLight.position.set(-10, 10, -10);
+  scene.add(backLight);
+  
+  const ambientLight = new THREE.AmbientLight(0xaaaaaa, 1.5); // Softer ambient light
+  scene.add(ambientLight);
+  
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
+  hemiLight.position.set(0, 30, 0);
+  scene.add(hemiLight);
+  
+  // OrbitControls setup
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.2;
+  controls.maxPolarAngle = Math.PI / 2.8;
+  controls.maxDistance = 1200; // Maximum zoom (prevents zooming too far)
+  controls.minDistance = 200; // Minimum zoom (prevents getting too close)
+  controls.smoothZoom = true;
+  controls.screenSpacePanning = false;
+  controls.zoomSpeed = 2;
+  // Loaders
+  const gltfLoader = new GLTFLoader();
+  const textureLoader = new THREE.TextureLoader();
+  const houseTexture1 = textureLoader.load(houseTexturePath);
+  //plane road
+  //var plane;
+  var planeGeometry = new THREE.PlaneGeometry(1300, 1300);
+    // NOTE Shift the plane
+    // planeGeometry.applyMatrix4(new THREE.Matrix4().makeTranslation(50, -50, 0));
+    var planeMaterial = new THREE.MeshStandardMaterial({
+      color: 0x303030,
+      polygonOffset: true,
+      polygonOffsetFactor: 5,
+      side: THREE.DoubleSide,
+    });
+    plane = new THREE.Mesh(planeGeometry, planeMaterial);
+    plane.receiveShadow = true;
+    plane.rotation.x = -Math.PI / 2;
+    scene.add(plane);
+  
+    var scenePlaneGeometry = new THREE.PlaneGeometry(10000, 10000);
+    var scenePlaneMaterial = new THREE.MeshPhongMaterial({
+      color: 0xf3f3f3,
+      side: THREE.DoubleSide,
+    });
+    var scenePlane = new THREE.Mesh(scenePlaneGeometry, scenePlaneMaterial);
+    scenePlane.rotation.x = -Math.PI / 2;
+    scenePlane.position.y = -50;
+    scene.add(scenePlane);
+    generateCity(cityWidth, cityLength);
+    window.addEventListener("resize", onWindowResize, false);
+}
+// Remove blobs from the scene
+//var pathsArray = [];
+function resetBlobs() {
+  pathsArray.forEach((e) => {
+    e.sphere.parent.remove(e.sphere);
+  });
+  pathsArray = null;
+  pathsArray = [];
+}
+// Animation Loop
+function animate() {
+  if (!control.play) return;
+  //controls.update()
+  requestAnimationFrame(animate);
+  //renderer.render(scene, camera);
+  controls.update();
+  render();
+}
+//animate();
 
-// Handle window resize
-window.addEventListener('resize', () => {
+// Resize Handling
+//window.addEventListener("resize", () => {
+//  camera.aspect = window.innerWidth / window.innerHeight;
+//  camera.updateProjectionMatrix();
+//  renderer.setSize(window.innerWidth, window.innerHeight);
+//});
+function onWindowResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
+
   renderer.setSize(window.innerWidth, window.innerHeight);
-});
-// Function to create roads
-function createRoad(width, height, position) {
-  const roadGeometry = new THREE.PlaneGeometry(width, height);
-  const roadMaterial = new THREE.MeshStandardMaterial({ color: 0x333333, side: THREE.DoubleSide });
-  const road = new THREE.Mesh(roadGeometry, roadMaterial);
-  road.rotation.x = -Math.PI / 2; // Rotate to lay flat
-  road.position.set(position.x, position.y, position.z);
-  scene.add(road);
+  // effect.setSize(window.innerWidth, window.innerHeight);
 }
+//var cityWidth = 1300;
+//var cityLength = 1300;
+//generateCity(cityWidth, cityLength);
 
-// Road properties
-const roadWidth = 3; // Width of the roads
-const roadY = -0.01; // Slightly below the buildings
+function generateCity(cityWidth, cityLength) {
+  var blockSize = 50;
+  var xDistricts = Math.floor(cityWidth / (4 * blockSize + blockSize));
+  var yDistricts = Math.floor(cityLength / (4 * blockSize + blockSize));
+  for (var i = 0; i < yDistricts; i++) {
+    for (var j = 0; j < xDistricts; j++) {
+      // Generate District plane
+      var xOffset = j * 250 + blockSize + (15 + 40);
+      var yOffset = i * 250 + blockSize + (15 + 40);
 
-// Add roads around each block
-for (let i = 0; i < gridSize; i++) {
-  for (let j = 0; j < gridSize; j++) {
-    const centerX = i * blockSize - middleX; 
-    const centerZ = j * blockSize - middleZ;
-
-    // Horizontal roads (top & bottom of block)
-    createRoad(blockSize + roadWidth, roadWidth, { x: centerX, y: roadY, z: centerZ + blockSize / 2 });
-    createRoad(blockSize + roadWidth, roadWidth, { x: centerX, y: roadY, z: centerZ - blockSize / 2 });
-
-    // Vertical roads (left & right of block)
-    createRoad(roadWidth, blockSize + roadWidth, { x: centerX - blockSize / 2, y: roadY, z: centerZ });
-    createRoad(roadWidth, blockSize + roadWidth, { x: centerX + blockSize / 2, y: roadY, z: centerZ });
-  }
-}
-// Store created road and connection lines in arrays
-let roadLines = [];
-let connectionLines = [];
-let movingBlobs = [];
-
-// ✅ Create Road Line (Orange)
-function createRoadLine(start, end) {
-    console.log(`Creating Road Line: Start (${start.x}, ${start.z}) → End (${end.x}, ${end.z})`);
-    const material = new THREE.LineBasicMaterial({ color: 0xffa500, linewidth: 3 });
-    const points = [new THREE.Vector3(start.x, start.y, start.z), new THREE.Vector3(end.x, end.y, end.z)];
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-    const line = new THREE.Line(geometry, material);
-    scene.add(line);
-
-    addRoadLine({ start, end, line });
-}
-
-function addRoadLine(road) {
-    roadLines.push(road);
-}
-
-// ✅ Create Connection Line (Blue)
-function createConnectionLine(modelPos, blockCenter, rotation) {
-  
-    
-    const material = new THREE.LineBasicMaterial({ color: 0x0000ff, linewidth: 2 });
-    const start = new THREE.Vector3(modelPos.x, connectionLineY, modelPos.z);
-    let end;
-    console.log("Creating Connection Line with:", start, end, rotation); // Debug log
-    console.log(`Start X: ${start.x}, Start Z: ${start.z}`); // Potential issue here
-    console.log(`End X: ${end.x}, End Z: ${end.z}`);
-    if (rotation.y === 0) {
-        end = new THREE.Vector3(modelPos.x, connectionLineY, blockCenter.z + blockSize / 2);
-    } else if (Math.abs(rotation.y - Math.PI) < 0.001) {
-        end = new THREE.Vector3(modelPos.x, connectionLineY, blockCenter.z - blockSize / 2);
+      var geometry = new THREE.PlaneGeometry(200, 200);
+      var material = new THREE.MeshPhongMaterial({
+        // color: 0x0dae62,
+        color: 0xe0e0e0,
+        // polygonOffset: true,
+        // polygonOffsetFactor: 5,
+        side: THREE.DoubleSide,
+        shininess: 10,
+      });
+      var districtPlane = new THREE.Mesh(geometry, material);
+      districtPlane.receiveShadow = true;
+      districtPlane.rotation.x = -Math.PI / 2;
+      districtPlane.position.y = 1;
+      districtPlane.applyMatrix4(
+        new THREE.Matrix4().makeTranslation(
+          xOffset + 45 - cityWidth / 2,
+          0,
+          yOffset + 45 - cityLength / 2
+        )
+      );
+      if (scene){
+      scene.add(districtPlane);
     } else {
-        return;
+      console.error("Group is undefined");
     }
+      //scene.add(districtPlane);
 
-    const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
-    const line = new THREE.Line(geometry, material);
-    scene.add(line);
-
-    connectionLines.push({ start, end, line });
-}
-
-// ✅ Get a random connection line
-function getRandomConnectionLine() {
-    return connectionLines.length > 0 ? connectionLines[Math.floor(Math.random() * connectionLines.length)] : null;
-}
-
-// ✅ Find a valid path between models using both connection & road lines
-function findPath(startPos, targetPos) {
-  if (!startPos || !targetPos) {
-      console.warn("Invalid start or target position.", startPos, targetPos);
-      return [];
-  }
-
-  console.log(`Finding path from (${startPos.x}, ${startPos.z}) to (${targetPos.x}, ${targetPos.z})`);
-  
-  let queue = [{ pos: startPos, path: [] }];
-  let visited = new Set();
-
-  while (queue.length > 0) {
-      let { pos, path } = queue.shift();
-
-      // ✅ If reached the target, return the path
-      if (pos.x === targetPos.x && pos.z === targetPos.z) {
-          console.log("✅ Path found:", path);
-          return path;
+      // Generate buildings
+      for (var k = 1; k <= 4; k++) {
+        var xShift = isHouseLeft(k) ? 0 : 90;
+        var yShift = isHouseUpper(k) ? 0 : 90;
+        var matrix = new THREE.Matrix4().makeTranslation(
+          xOffset + xShift,
+          0,
+          yOffset + yShift
+        );
+        var bldgType = random(0, 100);
+        if (bldgType <= 33) {
+          generateFlat(flatModel, houseTexturePath, matrix, isHouseLeft(k), 30);
+        } else if (bldgType > 33 && bldgType <= 60) {
+          generateFlat(flat2Model, houseTexturePath, matrix, isHouseLeft(k), 30);
+        } else {
+          generateFlat(houseModel, houseTexturePath, matrix, isHouseLeft(k), 60);
+        }
       }
-
-      // ✅ Explore road connections (BIDIRECTIONAL)
-      for (let road of roadLines) {
-          let nextPos = null;
-          if (pos.x === road.start.x && pos.z === road.start.z) {
-              nextPos = road.end;
-          } else if (pos.x === road.end.x && pos.z === road.start.z) {
-              nextPos = road.start;
-          }
-          if (nextPos) {
-              let key = `${nextPos.x},${nextPos.z}`;
-              if (!visited.has(key)) {
-                  console.log(`➡️ Visiting Road: ${key}`);
-                  visited.add(key);
-                  queue.push({ pos: nextPos, path: [...path, road] });
-              }
-          }
-      }
-
-      // ✅ Explore connection lines (BIDIRECTIONAL)
-      for (let conn of connectionLines) {
-          let nextPos = null;
-          if (pos.x === conn.start.x && pos.z === conn.start.z) {
-              nextPos = conn.end;
-          } else if (pos.x === conn.end.x && pos.z === conn.start.z) {
-              nextPos = conn.start;
-          }
-          if (nextPos) {
-              let key = `${nextPos.x},${nextPos.z}`;
-              if (!visited.has(key)) {
-                  console.log(`➡️ Visiting Connection: ${key}`);
-                  visited.add(key);
-                  queue.push({ pos: nextPos, path: [...path, conn] });
-              }
-          }
-      }
-  }
-  
-  console.warn("❌ No valid path found between:", startPos, "and", targetPos);
-  console.warn("Total roadLines:", roadLines.length, "Total connectionLines:", connectionLines.length);
-  return [];
-}
-
-
-// ✅ Move blob through the path
-function moveBlob(blob, path, onComplete) {
-    if (path.length === 0) {
-        if (onComplete) onComplete();
-        return;
     }
-
-    let nextSegment = path.shift();
-
-    new TWEEN.Tween(blob.position)
-        .to({ x: nextSegment.end.x, z: nextSegment.end.z }, 1000)
-        .easing(TWEEN.Easing.Quadratic.InOut)
-        .onComplete(() => moveBlob(blob, path, onComplete))
-        .start();
+  }
 }
 
-// ✅ Create and move a blob along roads
-function startBlobMovement() {
-  if (connectionLines.length === 0 || roadLines.length === 0) {
-      console.warn("No valid paths available.");
-      return;
+// SECTION Load GLTF Object and add it to the scene
+function generateFlat(GLTFObject, objTexture, matrix, rotateLeft, scale) {
+  var matrixGlobal = new THREE.Matrix4().makeTranslation(
+    -cityWidth / 2,
+    0,
+    -cityLength / 2
+  );
+  // var single = new THREE.Geometry();
+  var loader = new GLTFLoader();
+
+  var newMaterial = new THREE.MeshLambertMaterial({
+    color: 0xffffff,
+  });
+  var textureLoader = new THREE.TextureLoader();
+  var texture = textureLoader.load(objTexture);
+  var rotation = rotateLeft ? -Math.PI / 2 : Math.PI / 2;
+  loader.load(
+    GLTFObject,
+    function (gltf) {
+      var flat = gltf.scene.children[0];
+
+      gltf.scene.traverse(function (child) {
+        if (child.isMesh) {
+          child.material = newMaterial;
+          child.material.map = texture;
+          child.receiveShadow = false;
+          child.castShadow = true;
+        }
+      });
+      flat.visible = true;
+      // flat.geometry.center();
+      flat.applyMatrix4(matrix);
+      flat.applyMatrix4(matrixGlobal);
+      flat.position.y = 1;
+      flat.rotateY(rotation);
+      // flat.updateMatrix();
+      flat.scale.set(scale, scale, scale);
+      scene.add(flat);
+    },
+    undefined,
+    function (error) {
+      console.error(error);
+    }
+  );
+}
+// Whether house is adjacent to the left road in district
+function isHouseLeft(index) {
+  if (index % 2 == 1) {
+    return true;
+  } else return false;
+}
+// Whether house is in the upper location within district
+function isHouseUpper(index) {
+  if (index <= 2) {
+    return true;
+  } else return false;
+}
+// Random float
+function random(min, max) {
+  return min + Math.random() * (max - min);
+}
+// Random Integer
+function randomInt(min, max) {
+  return Math.floor(Math.random() * (max - min)) + min;
+}
+
+// SECTION City Graph Creation
+function generatePopulation() {
+  document.querySelector(".day-counter").innerHTML = elapsedDays;
+  document.querySelector(".case-counter").innerHTML =
+    control.infectedBlobs + "/" + control.peopleCount;
+  for (var i = 0; i < control.peopleCount; i++) {
+    var src = randomHouse();
+    var dst = randomHouse();
+    generatePath(src, dst);
   }
-
-  // ✅ Ensure start and target connections exist
-  const startConnection = getRandomConnectionLine();
-  if (!startConnection) {
-      console.warn("No valid start connection found.");
-      return;
+  pathsArray.forEach((e) => {
+    if (control.showPaths) scene.add(e.line);
+    scene.add(e.sphere);
+  });
+  for (var i = 0; i < control.infectedBlobs; i++) {
+    pathsArray[i].sphere.material.color = new THREE.Color(0xef233c);
+    pathsArray[i].isInfected = true;
   }
-  const startPos = startConnection.end;
+}
 
-  let targetConnection;
-  do {
-      targetConnection = getRandomConnectionLine();
-  } while (targetConnection === startConnection && connectionLines.length > 1);
+// Generate path for each blob
+function generatePath(src, dst) {
+  var matrix = new THREE.Matrix4().makeTranslation(
+    -cityWidth / 2,
+    0,
+    -cityLength / 2
+  );
+  var pointsPath = new THREE.CurvePath();
 
-  if (!targetConnection) {
-      console.warn("No valid target connection found.");
-      return;
-  }
-  const targetPos = targetConnection.end;
+  var srcX = src[0] % 5 == 0 ? 5 : src[0] % 5;
+  var srcY = src[0] % 5 == 0 ? src[0] / 5 : Math.floor(src[0] / 5) + 1;
+  var dstX = dst[0] % 5 == 0 ? 5 : dst[0] % 5;
+  var dstY = dst[0] % 5 == 0 ? dst[0] / 5 : Math.floor(dst[0] / 5) + 1;
 
-  // ✅ Ensure pathToTarget is valid
-  const pathToTarget = findPath(startPos, targetPos);
-  if (!pathToTarget || pathToTarget.length === 0) {
-      console.warn("No valid path found.");
-      return;
-  }
+  var s1 = new THREE.Vector3(25 + 250 * (srcX - 1), 5, 25 + 250 * (srcY - 1));
+  s1.setX(isHouseLeft(src[1]) ? s1.x : s1.x + 250);
+  s1.setZ(isHouseUpper(src[1]) ? s1.z + 80 : s1.z + 170);
+  var s01 = new THREE.Vector3(25 + 250 * (srcX - 1), 5, s1.z);
+  s01.setX(isHouseLeft(src[1]) ? s1.x + 80 : s1.x - 80);
+  var s2 = new THREE.Vector3(s1.x, 5, 25 + 250 * srcY);
 
-  const pathBack = [...pathToTarget].reverse();
+  var d1 = new THREE.Vector3(25 + 250 * (dstX - 1), 5, 25 + 250 * (dstY - 1));
+  d1.setX(isHouseLeft(dst[1]) ? d1.x : d1.x + 250);
+  d1.setZ(isHouseUpper(dst[1]) ? d1.z + 80 : d1.z + 170);
+  var d01 = new THREE.Vector3(25 + 250 * (dstX - 1), 5, d1.z);
+  d01.setX(isHouseLeft(dst[1]) ? d1.x + 80 : d1.x - 80);
+  var d2 = new THREE.Vector3(d1.x, 5, 25 + 250 * dstY);
 
-  // ✅ Create the blob
-  const geometry = new THREE.SphereGeometry(0.2, 10, 10);
-  const material = new THREE.MeshBasicMaterial({ color: 0x0000ff });
-  const blob = new THREE.Mesh(geometry, material);
+  var m1 = new THREE.Vector3(25 + 250 * (randomInt(srcX, dstX) - 1), 5, s2.z);
+  var m2 = new THREE.Vector3(m1.x, 5, d2.z);
+  s01.applyMatrix4(matrix);
+  d01.applyMatrix4(matrix);
+  s1.applyMatrix4(matrix);
+  s2.applyMatrix4(matrix);
+  d1.applyMatrix4(matrix);
+  d2.applyMatrix4(matrix);
+  m1.applyMatrix4(matrix);
+  m2.applyMatrix4(matrix);
 
-  blob.position.copy(startPos);
-  scene.add(blob);
-  movingBlobs.push(blob);
+  pointsPath.add(new THREE.LineCurve3(s01, s1));
+  pointsPath.add(new THREE.LineCurve3(s1, s2));
+  pointsPath.add(new THREE.LineCurve3(s2, m1));
+  pointsPath.add(new THREE.LineCurve3(m1, m2));
+  pointsPath.add(new THREE.LineCurve3(m2, d2));
+  pointsPath.add(new THREE.LineCurve3(d2, d1));
+  pointsPath.add(new THREE.LineCurve3(d1, d01));
+  var points = pointsPath.curves.reduce(
+    (p, d) => [...p, ...d.getPoints(20)],
+    []
+  );
 
-  // ✅ Move the blob
-  moveBlob(blob, pathToTarget, () => {
-      setTimeout(() => moveBlob(blob, pathBack, () => console.log("Blob returned!")), 1000);
+  var lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+  var lineMaterial = new THREE.LineBasicMaterial({ color: 0xfff2af });
+  var road = new THREE.Line(lineGeometry, lineMaterial);
+  road.castShadow = true;
+
+  pathsArray.push({
+    line: road,
+    points: pointsPath,
+    sphere: generateBlob(),
+    isInfected: false,
   });
 }
-
-// ✅ Start Simulation (Create multiple blobs)
-function startSimulation() {
-    for (let i = 0; i < 5; i++) {
-        startBlobMovement();
+// Create a blob
+function generateBlob() {
+  var geometry = new THREE.SphereGeometry(6, 20, 20);
+  var material = new THREE.MeshBasicMaterial({
+    color: 0x0dae62,
+    transparent: true,
+    opacity: 0.9,
+  });
+  var sphere = new THREE.Mesh(geometry, material);
+  sphere.name = "blob";
+  sphere.castShadow = true;
+  sphere.receiveShadow = true;
+  return sphere;
+}
+// Get a random house's indexes
+function randomHouse() {
+  return [
+    Math.floor(Math.random() * Math.floor(25)) + 1,
+    Math.floor(Math.random() * Math.floor(4)) + 1,
+  ];
+}
+// SECTION Rendering logic
+function render() {
+  pathsArray.forEach((e) => {
+    var newPos = e.points.getPoint(t);
+    e.sphere.position.set(newPos.x, newPos.y, newPos.z);
+  });
+  if (t - control.tSpeed <= 0 && isBlobGoingBack) {
+    isBlobGoingBack = false;
+    daysPassed += 1;
+    infectBlobs();
+  } else if (t + control.tSpeed >= 1 && !isBlobGoingBack) {
+    isBlobGoingBack = true;
+  }
+  t = isBlobGoingBack ? t - control.tSpeed : t + control.tSpeed;
+  renderer.render(scene, camera);
+}
+// Infecting blobs algorightm
+function infectBlobs() {
+  var initInfectedBlobs = control.infectedBlobs;
+  for (var i = 0; i < initInfectedBlobs; i++) {
+    for (var j = 1; j < control.contactedWithBlobs; j++) {
+      if (probability(control.infectionChance)) {
+        var blobIndex = randomInt(0, pathsArray.length - 1);
+        if (pathsArray[blobIndex].isInfected == false) {
+          pathsArray[blobIndex].sphere.material.color = new THREE.Color(
+            0xef233c
+          );
+          pathsArray[blobIndex].isInfected = true;
+          control.infectedBlobs += 1;
+          document.querySelector(".case-counter").innerHTML =
+            control.infectedBlobs + "/" + control.peopleCount;
+        }
+      }
     }
-}
-
-// Call this after setting up roads and connections
-
-
-// Adjust road line position slightly above the roads
-const lineY = roadY + 0.2;
-
-for (let i = 0; i < gridSize; i++) {
-  for (let j = 0; j < gridSize; j++) {
-    const centerX = i * blockSize - middleX;
-    const centerZ = j * blockSize - middleZ;
-
-    // Horizontal road lines
-    createRoadLine({ x: centerX - blockSize / 2, y: lineY, z: centerZ + blockSize / 2 },
-                   { x: centerX + blockSize / 2, y: lineY, z: centerZ + blockSize / 2 });
-
-    createRoadLine({ x: centerX - blockSize / 2, y: lineY, z: centerZ - blockSize / 2 },
-                   { x: centerX + blockSize / 2, y: lineY, z: centerZ - blockSize / 2 });
-
-    // Vertical road lines
-    createRoadLine({ x: centerX - blockSize / 2, y: lineY, z: centerZ - blockSize / 2 },
-                   { x: centerX - blockSize / 2, y: lineY, z: centerZ + blockSize / 2 });
-
-    createRoadLine({ x: centerX + blockSize / 2, y: lineY, z: centerZ - blockSize / 2 },
-                   { x: centerX + blockSize / 2, y: lineY, z: centerZ + blockSize / 2 });
   }
+  elapsedDays++;
+  document.querySelector(".day-counter").innerHTML = elapsedDays;
 }
-// Define the road connection line elevation (just above the road lines)
-const connectionLineY = roadY + 0.2;
 
-// Function to create a connection line from a model’s front side to its corresponding road line.
-// We pass in the model’s known position (from the block loop), the block center (an object with x and z), and the model’s rotation.
+function initControls() {
+  var gui = new dat.GUI({ width: 320 });
+  var populationSetings = gui.addFolder("Population");
+  populationSetings
+    .add(control, "peopleCount", 50, 500, 1)
+    .name("Population (Reload)");
+  populationSetings
+    .add(control, "tSpeed", 0.0005, 0.01, 0.000095)
+    .name("Blob Speed");
+  populationSetings.open();
 
-// In your grid loop, right after you call loadModel for each model,
-// also call createConnectionLine using the known position, block center, and rotation.
-for (let i = 0; i < gridSize; i++) {
-  for (let j = 0; j < gridSize; j++) {
-    const centerX = i * blockSize - middleX; // Shift grid to center
-    const centerZ = j * blockSize - middleZ; // Shift grid to center
-    const blockCenter = { x: centerX, z: centerZ };
-
-    const models = [
-      { model: flatModel, position: { x: centerX - 1.5, y: 0, z: centerZ + 1.5 }, scale: { x: 1.2, y: 1.2, z: 1.2 }, rotation: { x: 0, y: 0, z: 0 } },
-      { model: flat2Model, position: { x: centerX + 1.5, y: 0, z: centerZ + 1.5 }, scale: { x: 1.2, y: 1.2, z: 1.2 }, rotation: { x: 0, y: 0, z: 0 } },
-      { model: houseModel, position: { x: centerX - 1.5, y: 0, z: centerZ - 1.5 }, scale: { x: 2.5, y: 2.5, z: 2.5 }, rotation: { x: 0, y: Math.PI, z: 0 } },
-      { model: flatModel, position: { x: centerX + 1.5, y: 0, z: centerZ - 1.5 }, scale: { x: 1.2, y: 1.2, z: 1.2 }, rotation: { x: 0, y: Math.PI, z: 0 } },
-    ];
-
-    models.forEach(modelData => {
-      // Load the model (as before) with the provided parameters.
-      loadModel(modelData.model, houseTexture1, modelData.position, modelData.scale, modelData.rotation);
-
-      // Create a connection line from the model’s front side to the road line.
-      // (Using the same data from this loop, so the connection is drawn immediately.)
-      console.log("Model Position:", modelData.position);
-      console.log("Block Center:", blockCenter);
-      console.log("Rotation:", modelData.rotation);
-      
-
-      createConnectionLine(modelData.position, blockCenter, modelData.rotation);
-    });
-  }
+  var infectionSettings = gui.addFolder("Disease Spread");
+  infectionSettings
+    .add(control, "infectedBlobs", 1, 50, 1)
+    .name("Infected Blobs (Reload)");
+  infectionSettings
+    .add(control, "infectionChance", 1, 50, 1)
+    .name("Infection Chance (%)");
+  infectionSettings
+    .add(control, "contactedWithBlobs", 1, 50, 1)
+    .name("Physical contacts per blob");
+  var controls = gui.addFolder("Controls");
+  controls.add(control, "showPaths").name("Show paths (Reload)");
+  controls.add(control, "stopAnimation").name("Play/Stop Simulation");
+  controls.add(control, "reload").name("Reload");
+  controls.open();
 }
-const gol=startSimulation();
-console.log(gol)
